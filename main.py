@@ -11,6 +11,7 @@ import shutil
 import base64
 import csv
 import streamlit.components.v1 as components
+import time
 
 from yt_dlp import YoutubeDL
 from utils import create_dir, remove_dir, get_yt_id
@@ -303,6 +304,11 @@ def main():
                 with YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(yt_link)
                     audio_raw_path = info["requested_downloads"][0]["filepath"]
+                    st.session_state["video_info"] = {
+                        "title": info["title"],
+                        "channel": info["uploader"],
+                        "duration": info["formats"][0]["fragments"][0]["duration"],
+                    }
 
             except:
                 st.error("Failed Download Audio From Youtube!")
@@ -333,6 +339,19 @@ def main():
     if "sucessfull" in st.session_state:
         if st.session_state["sucessfull"] == True:
             my_bar.progress(100)
+
+    # update video info
+    if "video_info" in st.session_state:
+        with st.expander("Video Information", expanded=True):
+            title_video = st.session_state["video_info"]["title"]
+            channel_video = st.session_state["video_info"]["channel"]
+            duration_video_s = int(st.session_state["video_info"]["duration"])
+            duration_str = time.strftime("%H:%M:%S", time.gmtime(duration_video_s))
+
+            st.text_input("Title", value=title_video)
+            c31, c32 = st.columns(2)
+            c31.text_input("Channel", value=channel_video)
+            c32.text_input("Duration", value=duration_str)
 
     generate_dataset_visualization()
 
