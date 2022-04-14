@@ -13,7 +13,7 @@ import csv
 import streamlit.components.v1 as components
 
 from yt_dlp import YoutubeDL
-from utils import create_dir, remove_dir
+from utils import create_dir, remove_dir, get_yt_id
 from youtube_transcript_api import YouTubeTranscriptApi
 from pydub import AudioSegment
 
@@ -23,6 +23,8 @@ languages_list = (
 )
 
 sample_rate_list = ("16000 Hz", "22050 Hz", "44100 Hz")
+
+# https://www.youtube.com/watch?v=D5hnYW5lBuw
 
 
 def read_generated_metadata_and_audio():
@@ -53,7 +55,6 @@ def generate_dataset_visualization():
             current_key = list(current_state.keys())[current_idx]
 
         with st.expander("", expanded=True):
-            print(current_idx)
             if current_idx >= 0:
                 prev_bt, mid, next_bt = st.columns([4, 30, 4])
 
@@ -108,7 +109,7 @@ def generate_dataset_visualization():
             else:
                 print(st.session_state["current_idx"])
 
-        c1, c2 = st.columns(2)
+        c1, c2, _, c4 = st.columns([4, 6, 4, 6])
 
         if c1.button("✅ Approve All "):
             for key in current_state.copy():
@@ -117,14 +118,11 @@ def generate_dataset_visualization():
             st.session_state["current_idx"] = -1
             st.experimental_rerun()
 
-        if c2.button("⏬ Generate Dataset"):
+        if c2.button("🔄 Generate Dataset"):
             generate_dataset()
-            with st.expander("", expanded=True):
-                video_id = st.session_state["video_id"]
-                with open(st.session_state["audio_zip_path"], "rb") as f:
-                    st.download_button(
-                        "Download Dataset", f, file_name=f"{video_id}.zip"
-                    )
+            video_id = st.session_state["video_id"]
+            with open(st.session_state["audio_zip_path"], "rb") as f:
+                c4.download_button("⏬ Download Dataset", f, file_name=f"{video_id}.zip")
 
 
 def generate_dataset():
@@ -165,26 +163,29 @@ def generate_dataset():
 def main():
     # title
     st.markdown(
-        "<h1 style='text-align: center; color: grey;'>🌝 Youtube STT Downloader 🌚</h1>",
+        "<h2 style='text-align: center; color: grey;'>🌝 Youtube STT Dataset Generator 🌚</h2>",
         unsafe_allow_html=True,
     )
 
     # youtube link form
     with st.form("video_form"):
-        video_id = st.text_input(
-            "Youtube ID, Example: https://www.youtube.com/watch?v=D5hnYW5lBuw",
-            value="lRsB0ft00sE&t=12s",
+        # get video id
+        yt_link_input = st.text_input(
+            "Youtube Video Link",
+            value="https://www.youtube.com/watch?v=lRsB0ft00sE&t=12s",
         )
-
+        # language and sample rate widgets
         col1, col2 = st.columns(2)
         with col1:
             languages_sb = st.selectbox("Language", languages_list)
         with col2:
             samplerate_sb = st.selectbox("Sample Rate", sample_rate_list)
 
+        # progress bar and submit button widget
         my_bar = st.progress(0)
-        submitted = st.form_submit_button("Generate")
+        submit = st.form_submit_button("Generate")
 
+        # callback function for update progress bar when downloading raw audio
         def bar_hook(d):
             if d["status"] == "finished":
                 my_bar.progress(80)
@@ -195,13 +196,20 @@ def main():
                 my_bar.progress(p)
                 print(d["filename"], d["_percent_str"], d["_eta_str"])
 
-        if submitted:
+        if submit:
+            # reset current state
             st.session_state["audio_state"] = {}
             st.session_state["audio_approve"] = []
-            st.session_state["video_id"] = video_id
 
+            # generate youtube link based on video id
+            video_id = get_yt_id(yt_link_input)
+            if video_id == False:
+                st.error("Please input correct link!")
+                return
+            st.session_state["video_id"] = video_id
             yt_link = f"https://www.youtube.com/watch?v={video_id}"
 
+            # parse language code and sample rate from widgets
             language_code = languages_sb.split(" ")[0].lower()
             sample_rate = int(samplerate_sb.split(" ")[0])
 
@@ -269,13 +277,6 @@ def main():
 
             except:
                 st.error("Failed Download Audio From Youtube!")
-
-    process_state = False
-    # process_button = st.button("Process")
-    # if st.button("Process"):
-    #     st.session_state["audio_dir"] = "result/audio"
-    #     st.session_state["csv_path"] = "result/transcript.csv"
-
     generate_dataset_visualization()
 
 
