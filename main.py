@@ -119,16 +119,25 @@ def generate_dataset_visualization():
             st.experimental_rerun()
 
         if c2.button("🔄 Generate Dataset"):
-            generate_dataset()
+            if generate_dataset():
+                st.session_state["downloaded"] = True
+
+        if "downloaded" in st.session_state and st.session_state["downloaded"] == True:
             video_id = st.session_state["video_id"]
             with open(st.session_state["audio_zip_path"], "rb") as f:
-                c4.download_button("⏬ Download Dataset", f, file_name=f"{video_id}.zip")
+                c4.download_button(
+                    "⏬ Download Dataset", f, key="download", file_name=f"{video_id}.zip"
+                )
 
 
 def generate_dataset():
+    if len(st.session_state["audio_approve"]) < 1:
+        st.error("Please approve audio atleast one!")
+        return False
+
     video_id = st.session_state["video_id"]
-    temp_download_dir = os.path.join("temp", "download_dir")
-    temp_zip_dir = os.path.join("temp", "zip")
+    temp_download_dir = os.path.join(".temp", "download_dir")
+    temp_zip_dir = os.path.join(".temp", "zip")
     temp_zip_path = os.path.join(temp_zip_dir, f"{video_id}")
 
     temp_download_audio_dir = os.path.join(temp_download_dir, "audio")
@@ -158,6 +167,51 @@ def generate_dataset():
 
     shutil.make_archive(temp_zip_path, "zip", temp_download_dir)
     st.session_state["audio_zip_path"] = f"{temp_zip_path}.zip"
+    return True
+
+
+def split_audio(
+    audio_raw_path,
+    sample_rate,
+    check_mono,
+    subtitle,
+    video_id,
+    audio_temp_dir,
+    metadata_temp_path,
+):
+    # split audio based on subtitle timestamp
+    # read raw audio file
+    audio = AudioSegment.from_file(audio_raw_path)
+
+    # resample audio to target sample_rate and convert to mono if mono checked
+    audio = audio.set_frame_rate(sample_rate)
+    if check_mono:
+        audio = audio.set_channels(1)
+
+    audio_transcript_list = []
+    for i, sub in enumerate(subtitle):
+        audio_id = f"YT_{video_id}_{i}"
+        audio_filename = f"{audio_id}.wav"
+
+        segment_start = int(sub["start"] * 1000)
+        segment_end = int((sub["start"] + sub["duration"] + 0.3) * 1000)
+        audio_segment = audio[segment_start:segment_end]
+        audio_segment.export(os.path.join(audio_temp_dir, audio_filename), format="wav")
+        audio_transcript_list.append(
+            {
+                "id": i,
+                "path": audio_filename,
+                "sentence": sub["text"],
+                "sample_rate": sample_rate,
+                "duration": sub["duration"],
+            }
+        )
+    # generate metadata
+    with open(metadata_temp_path, "w", encoding="utf8") as f:
+        fieldnames = list(audio_transcript_list[0].keys())
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(audio_transcript_list)
 
 
 def main():
@@ -181,28 +235,33 @@ def main():
         with col2:
             samplerate_sb = st.selectbox("Sample Rate", sample_rate_list)
 
-        # progress bar and submit button widget
+        # progress bar
         my_bar = st.progress(0)
-        submit = st.form_submit_button("Generate")
+
+        col21, col22 = st.columns([12, 6])
+        submit = col22.form_submit_button("Generate Audio & Transcript")
+        check_mono = col21.checkbox("Convert to Mono", value=True)
 
         # callback function for update progress bar when downloading raw audio
         def bar_hook(d):
             if d["status"] == "finished":
-                my_bar.progress(80)
+                my_bar.progress(90)
             if d["status"] == "downloading":
                 p = d["_percent_str"].split("%")[0].replace(" ", "")
-                p = int(float(p[7:]) * 0.8)
+                p = int(float(p[7:]) * 0.8) + 10
 
                 my_bar.progress(p)
                 print(d["filename"], d["_percent_str"], d["_eta_str"])
 
         if submit:
+            st.session_state["sucessfull"] = False
             # reset current state
             st.session_state["audio_state"] = {}
             st.session_state["audio_approve"] = []
 
             # generate youtube link based on video id
             video_id = get_yt_id(yt_link_input)
+            print(video_id)
             if video_id == False:
                 st.error("Please input correct link!")
                 return
@@ -213,17 +272,27 @@ def main():
             language_code = languages_sb.split(" ")[0].lower()
             sample_rate = int(samplerate_sb.split(" ")[0])
 
-            dataset_temp_dir = os.path.join("temp", f"{video_id}_{language_code}")
+            # set path for temporary files
+            dataset_temp_dir = os.path.join(".temp", f"{video_id}_{language_code}")
             audio_temp_dir = os.path.join(dataset_temp_dir, "audio")
-            csv_temp_dir = os.path.join(dataset_temp_dir, "metadata.csv")
+            metadata_temp_path = os.path.join(dataset_temp_dir, "metadata.csv")
 
             # create temp dir
-            create_dir("temp")
+            create_dir(".temp")
             create_dir(dataset_temp_dir)
             create_dir(audio_temp_dir)
 
+            # download subtitle
             try:
-                # download raw audio
+                subtitle = YouTubeTranscriptApi.get_transcript(
+                    video_id, languages=[language_code]
+                )
+                my_bar.progress(10)
+            except:
+                st.error("Subtitles are disabled for this video")
+                return
+
+            try:
                 ydl_opts = {
                     "format": "bestaudio",
                     "progress_hooks": [bar_hook],
@@ -235,48 +304,36 @@ def main():
                     info = ydl.extract_info(yt_link)
                     audio_raw_path = info["requested_downloads"][0]["filepath"]
 
-                # download subtitle
-                subtitle = YouTubeTranscriptApi.get_transcript(
-                    video_id, languages=[language_code]
-                )
-                my_bar.progress(90)
-
-                # split audio based on subtitle timestamp
-                audio = AudioSegment.from_file(audio_raw_path, frame_rate=sample_rate)
-                audio_transcript_list = []
-                for i, sub in enumerate(subtitle):
-                    audio_id = f"YT_{video_id}_{i}"
-                    audio_filename = f"{audio_id}.wav"
-
-                    segment_start = int(sub["start"] * 1000)
-                    segment_end = int((sub["start"] + sub["duration"] + 0.3) * 1000)
-                    audio_segment = audio[segment_start:segment_end]
-                    audio_segment.export(
-                        os.path.join(audio_temp_dir, audio_filename), format="wav"
-                    )
-                    audio_transcript_list.append(
-                        {
-                            "id": i,
-                            "path": audio_filename,
-                            "sentence": sub["text"],
-                            "sample_rate": sample_rate,
-                            "duration": sub["duration"],
-                        }
-                    )
-                # generate metadata
-                with open(csv_temp_dir, "w", encoding="utf8") as f:
-                    fieldnames = list(audio_transcript_list[0].keys())
-                    writer = csv.DictWriter(f, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(audio_transcript_list)
-
-                my_bar.progress(100)
-                st.session_state["audio_dir"] = audio_temp_dir
-                st.session_state["csv_path"] = csv_temp_dir
-                read_generated_metadata_and_audio()
-
             except:
                 st.error("Failed Download Audio From Youtube!")
+                return
+
+            # split raw audio based on subtitle timestamp
+            try:
+                split_audio(
+                    audio_raw_path,
+                    sample_rate,
+                    check_mono,
+                    subtitle,
+                    video_id,
+                    audio_temp_dir,
+                    metadata_temp_path,
+                )
+            except:
+                st.error("Split Raw Audio Failed!")
+                return
+            my_bar.progress(100)
+
+            st.session_state["audio_dir"] = audio_temp_dir
+            st.session_state["csv_path"] = metadata_temp_path
+            st.session_state["sucessfull"] = True
+            read_generated_metadata_and_audio()
+
+    # update progress bar to 100
+    if "sucessfull" in st.session_state:
+        if st.session_state["sucessfull"] == True:
+            my_bar.progress(100)
+
     generate_dataset_visualization()
 
 
