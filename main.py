@@ -1,14 +1,8 @@
-from calendar import c
 import streamlit as st
 import os
 import csv
 import time
-import requests
-import logging
-import re
-import copy
 import shutil
-import base64
 import csv
 import streamlit.components.v1 as components
 import time
@@ -24,8 +18,6 @@ languages_list = (
 )
 
 sample_rate_list = ("16000 Hz", "22050 Hz", "44100 Hz")
-
-# https://www.youtube.com/watch?v=D5hnYW5lBuw
 
 
 def read_generated_metadata_and_audio():
