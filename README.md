@@ -21,6 +21,9 @@ This tool also works for automatically generated subtitles and currently only su
     ```bash
     $ streamlit run main.py
     ```
+    
+## 🤷🏻‍♂️ Why do I create this tool?
+I worked at a startup company that developed a speech-to-text system for the Indonesian language. The problem is we need more datasets to optimize the system. Then this idea comes why we don't mine the audio dataset from youtube. Then after combining everything that I think is useful from the Github community, I can make this tool 😬.
 
 ## 📄 License
 
